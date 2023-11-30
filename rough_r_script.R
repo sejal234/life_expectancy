@@ -1,57 +1,167 @@
 rm(list=ls())
 setwd("/Users/sejalgupta/gith/dsci_final")
-data = read.csv("WDI_CSV/WDICSV.csv") #world development
+data = read.csv("WDI_CSV/WDICSV.csv") #world development'
+#only want to keep countries after the "world" observation (everything above is regions)
+last_world_row <- max(which(data$Country.Name == "World")) #72373
+df <- data[(72374):nrow(data), ] 
+#df_fil = df[complete.cases(df) | rowSums(is.na(df)) <= 60, ] #just to easily look for what indicators countries have
 
 #libraries
 library(ggplot2)
-
-#used in scatterplot vis (#2)
+#used in scatterplot vis
 library(tidyr) 
-#library(ggimage)
+library("ggimage")
+#used in the regression
+library(tidyverse)
+library(plm)
+library(ggeffects)
+library(dagitty)
+library(ggdag)
+library(stargazer)
+#used in the map
+library(sf)
+#used in the animation 
+library(gganimate)
+library(gifski)
 
-
-#only want to keep countries after the "world" observation (everything above is regions)
-last_world_row <- max(which(data$Country.Name == "World")) #72373
-df <- data[(72374):nrow(data), ]
-#df_fil = df[complete.cases(df) | rowSums(is.na(df)) <= 60, ] #just to easily look for what indicators countries have
 
 #VISUALIZATION 1
 #examine life expectancy globally (create a map)
 life_expectancy = subset(df, Indicator.Code == "SP.DYN.LE00.IN") #217 observations = 217 countries, data for most
 
 #full countries shapefile
-library(sf)
+#library(sf) #i might move this back here bc i think the order of the packages makes a difference
 world_df = st_read("WB_countries_Admin0_10m") #want to read the entire folder
 head(world_df) #use column WB_NAME to join
 
 world_df$WB_NAME[world_df$WB_NAME == "United States of America"] <- "United States" #so they merge properly
+#unfortunately no democratic republic of congo in the data
 
 world_df$Country.Name = world_df$WB_NAME #to join with life_expectancy$Country.Name
 
 map_df = merge(world_df, life_expectancy, by='Country.Name')
 
-map.theme<-theme(axis.line=element_blank(),axis.text.x=element_blank(),
-                 axis.text.y=element_blank(),axis.ticks=element_blank(),
+map.theme<-theme(axis.line=element_blank(), axis.text.x=element_blank(),
+                 axis.text.y=element_blank(), axis.ticks=element_blank(),
                  axis.title.x=element_blank(),
                  axis.title.y=element_blank(),
                  panel.background=element_blank(),panel.border=element_blank(),
                  panel.grid.major=element_blank(),
-                 panel.grid.minor=element_blank(),plot.background=element_blank())
+                 panel.grid.minor=element_blank(),plot.background=element_blank(),
+                 legend.title=element_text(size = 8), #to make legend title smaller than default (11)
+                 plot.title = element_text(hjust = 0.5)) #to center the title over the map
+  #https://ggplot2.tidyverse.org/reference/theme.html 
+  #https://ggplot2.tidyverse.org/reference/element.html can use these to make my plots pretty!
+  #http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/ color palletes
+  #i've decided that changing the fonts is too much
 
 ggplot(data=map_df) +
   geom_sf(aes(fill=X2021)) +
   map.theme+
-  labs(title="something abt findings", subtitle = "something abt 2021?", fill="Average Life Expectancy" )+
-  scale_fill_distiller(palette="YlOrRd", direction =1)
+  labs(title="Life Expectancy in 2021", fill="Average Life \n Expectancy") +
+  scale_fill_distiller(palette="YlGn", direction = 1) #change palette depending on website
 
 #the map works, major countries are there
 #i just want to play with the theme code to get it to look better
 
+#https://loading.io/color/feature/YlGnBu-8/
 
 
-#VISUALIZATION 2 scatterplot 
+#VISUALIZATION 2 bar graph
+  #horizontal, countries in order from highest to least life expectancy in 2021, color coded by continent (if thats possible)
+  #uses the df made in visualization 1 bc that has continent 
+
+#only do countries of top 30 population
+#topcountries <- map_df %>%
+#  filter(rank(desc(POP_EST))<=30)
+
+map_df$CONTINENT[map_df$CONTINENT == "Seven seas (open ocean)"] <- "Seven Seas" #for cleanliness
+
+bar.theme<-theme(plot.background=element_blank(),
+                     plot.title = element_text(hjust = 0.5),
+                     plot.subtitle = element_text(hjust = 0.5)) #to center the title over the map
+
+subregion <- st_drop_geometry(map_df) %>%
+  select(Country.Name, SUBREGION, X2021) %>%
+  group_by(SUBREGION) %>%
+  summarize(life_expectancy = mean(X2021, na.rm = TRUE))
+
+
+ggplot(data=subregion, mapping=aes(x=reorder(SUBREGION, -life_expectancy), y=life_expectancy, fill=life_expectancy))+
+  geom_bar(stat="identity")+
+  coord_flip()+
+  labs(y= "Life Expectancy (Years)",
+       x= "",
+       fill="Continent",
+       title= "Life Expectancy in 2021: By Region") +
+  bar.theme + 
+  scale_fill_distiller(palette="YlGn", direction = 1) +
+  guides(fill = FALSE) #get rid of legend
+
+continent <- st_drop_geometry(map_df) %>%
+  select(Country.Name, CONTINENT, X2021) %>%
+  group_by(CONTINENT) %>%
+  summarize(life_expectancy = mean(X2021, na.rm = TRUE))
+
+
+ggplot(data=continent, mapping=aes(x=reorder(CONTINENT, -life_expectancy), y=life_expectancy, fill=life_expectancy))+
+  geom_bar(stat="identity")+
+  coord_flip()+
+  labs(y= "Life Expectancy (Years)",
+       x= "",
+       fill="Continent",
+       title= "Life Expectancy in 2021: By Continent") +
+  bar.theme + 
+  scale_fill_distiller(palette="YlGn", direction = 1) +
+  guides(fill = FALSE) #get rid of legend
+
+
+# cont_codes = c("Seven Seas" = "#edf8b1",
+#                "Africa" = "#c7e9b4",
+#                "Asia" = "#7fcdbb",
+#                "Europe" = "#41b6c4", 
+#                "North America" = "#1d91c0", 
+#                "South America" = "#225ea8", 
+#                "Oceania" = "#0c2c84")
+
+# this makes for some not very helpful bar graphs
+# top20 <- map_df %>%
+#   filter(!is.na(X2021) & X2021 > 0) %>%
+#   #arrange(POP_EST) %>%
+#   filter(rank(desc(X2021)) <=20)
+# 
+# low20 <- map_df %>%
+#   filter(!is.na(X2021) & X2021 > 0) %>%
+#   #arrange(POP_EST) %>%
+#   filter(rank(X2021) <= 20)
+# 
+# ggplot(data=low20, mapping=aes(x=reorder(Country.Name, -X2021), y=X2021, fill=CONTINENT))+
+#   geom_bar(stat="identity")+
+#   coord_flip()+
+#   labs(y= "Life Expectancy (Years)", 
+#        x= "",
+#        fill="Continent",
+#        title= "Life Expectancy in 2021",
+#        subtitle="Countries with Lowest Average Life Expectancies")+
+#   bar.theme +
+#  scale_fill_manual(values=cont_codes)
+# 
+# ggplot(data=top20, mapping=aes(x=reorder(Country.Name, -X2021), y=X2021, fill=CONTINENT))+
+#   geom_bar(stat="identity")+
+#   coord_flip()+
+#   labs(y= "Life Expectancy (Years)", 
+#        x= "",
+#        fill="Continent",
+#        title= "Life Expectancy in 2021",
+#        subtitle="Countries with Highest Average Life Expectancies")+
+#   bar.theme +
+#   scale_fill_manual(values=cont_codes)
+
+
+
+
+#VISUALIZATION 3 scatterplot 
 #gdp per capita and life expectancy per country in 2021
-library("ggimage")
 countries_of_interest <- c("India", "China", "United States", 
                            "Indonesia", "Pakistan", "Nigeria", "Brazil",
                            "Bangladesh", "Japan", "Mexico") #10 highly populated countries
@@ -76,30 +186,74 @@ scatter$img[scatter$Country.Name == "Bangladesh"] = "/Users/sejalgupta/gith/dsci
 scatter$img[scatter$Country.Name == "Japan"] = "/Users/sejalgupta/gith/dsci_final/flags//japan.png"
 scatter$img[scatter$Country.Name == "Mexico"] = "/Users/sejalgupta/gith/dsci_final/flags//mexico.png"
 
+scatter.theme<-theme(panel.background = element_rect(fill = "white", #change depending on website theme
+                                                       colour = "white", linetype = "solid"),
+                    panel.grid.major = element_line(size = .2, colour = "grey"),
+                    panel.grid.minor = element_line(size = .2, colour = "grey"),
+                 panel.border=element_blank(),
+                 plot.background=element_blank(),
+                 plot.title = element_text(hjust = 0.5),
+                 plot.subtitle = element_text(hjust = 0.5)) #to center the title over the map
 
 (ggplot(data=scatter)+ #scatterplot, instead of points it's images
-  geom_image(aes(x=NY.GDP.PCAP.KD, y=SP.DYN.LE00.IN, image=img), size=.08)+ #figure out if there's a way to make the flag have a border
-    #if i can't put a border on the flags, i'll need to color the background so u can see the flags
-  theme_minimal())+  #run this with the plot screen not minimized so that it doesn't shrink
+  geom_image(aes(x=NY.GDP.PCAP.KD, y=SP.DYN.LE00.IN, image=img), size=.13)+
+  scatter.theme +  #run this with the plot screen not minimized so that it doesn't shrink
   labs(x= "GDP per Capita (US Dollars)", y="Life Expectancy (Years)", 
-       title="something abt 2021 life expectancy corr w wealth",
-       subtitle = "something abt top ten most populated countries")
+       title="No Obvious Correlation Between Wealth and Life Expectancy",
+       subtitle = "2021 Data from Ten Most Populated Countries"))
   
 #fix coloring and theme to match whatever i end up with
 
-#VISUALIZATION 3
+#VISUALIZATION 4: india, china, us time series
+#us_only <- subset(df, Country.Name == "United States")
+#india_only <- subset(df, Country.Name == "India")
+#china_only <- subset(df, Country.Name == "China")
+#us_only_fil <- us_only[complete.cases(us_only) | rowSums(is.na(us_only)) <= 40, ]
+#india_only_fil <- india_only[complete.cases(india_only) | rowSums(is.na(india_only)) <= 40, ]
+#china_only_fil <- china_only[complete.cases(china_only) | rowSums(is.na(china_only)) <= 40, ]
+time = df[df$Country.Name %in% c("India", "China", "United States"), ] 
+time = time[time$Indicator.Code %in% c("SP.DYN.LE00.IN","NY.GDP.PCAP.KD"), ]
+time = time %>% #same code as i did in visualization 4
+  gather(key = "Year", value = "Value", -Country.Name, -Country.Code, -Indicator.Code, -Indicator.Name) %>%
+  select(-Country.Code, -Indicator.Name) %>%
+  spread(key = "Indicator.Code", value = "Value")
+time$Year <- as.numeric(sub("X", "", time$Year))
+
+country_colors <- c("United States" = "#41ab5d", "India" = "#41b6c4", "China" = "#0c2c84")
+
+gdp_over_time <- ggplot(time, aes(x = Year, y = NY.GDP.PCAP.KD, color = Country.Name)) +
+  geom_point() +
+  #geom_line() +
+  labs(title = "GDP Per Capita Over Time",
+       x = "Year",
+       y = "GDP (US Dollars)",
+       color = "Country") +
+  scatter.theme +
+  scale_color_manual(values = country_colors)
+gdp_over_time
+gdp_anim = gdp_over_time+transition_states(Year, wrap = FALSE)+shadow_mark()
+animate(gdp_anim, renderer=gifski_renderer())
+anim_save("gdp_over_time.gif",animation=gdp_anim, renderer=gifski_renderer())
+
+life_over_time <- ggplot(time, aes(x = Year, y = SP.DYN.LE00.IN, color = Country.Name)) +
+  geom_point() +
+  labs(title = "Life Expectancy Over Time",
+       x = "Year",
+       y = "Life Expectancy (Years)",
+       color = "Country") +
+  scatter.theme +
+  scale_color_manual(values = country_colors)
+life_anim = life_over_time+transition_states(Year, wrap = FALSE)+shadow_mark()
+animate(life_anim, renderer=gifski_renderer())
+anim_save("life_over_time.gif",animation=life_anim, renderer=gifski_renderer())
+
+#VISUALIZATION 5
 #substantive effects plot - how does gdp per capita predict life expectancy? controlling for ______ 
 #look thru indicators, figure out what u wanna predict ("SP.DYN.LE00.IN" for life expectancy)
 #main independent variable (gdp per capita)
 #https://datacatalog.worldbank.org/search/dataset/0037712/World-Development-Indicators
 #this will require a lot of looking through the data
 #remove countries that have NAs for most of the dependent variables 
-
-#looking for potential regressors
-sum(rowSums(is.na(subset(df, Indicator.Code == "SP.DYN.LE00.IN") )) > 30) #9 countries, life expectancy
-sum(rowSums(is.na(subset(df, Indicator.Code == "NY.GDP.PCAP.KD") )) > 30) #48 countries, gdp per capita
-
-
 indic_list = c("SP.DYN.LE00.IN",
                "NY.GDP.PCAP.KD",
                "SH.XPD.CHEX.GD.ZS",
@@ -114,13 +268,10 @@ indic_list = c("SP.DYN.LE00.IN",
                "SH.STA.BASS.ZS",
                "PV.EST")
 
-#subsetting the df to make it easier to see what years are missing data
+#these are the indicators we would potentially use for the regression
+v4 = df[df$Indicator.Code %in% indic_list, ] #this should be v4 since its the last visualization but i am silly and moved code around
 
-v3 = df[df$Indicator.Code %in% indic_list, ]
-
-library(tidyverse)
-
-v3_long = v3 %>%
+v4_long = v4 %>%
   gather(key = "Year", value = "Value", -Country.Name, -Country.Code, -Indicator.Code, -Indicator.Name) %>%
   select(-Country.Code, -Indicator.Name) %>%
   spread(key = "Indicator.Code", value = "Value")
@@ -142,73 +293,74 @@ names = c(
   "political_stability"  # Political Stability and Absence of Violence/Terrorism: Estimate
 )
 
-v3_dataset = v3_long %>%
-  rename(
-    Country = Country.Name,
-    !!!setNames(indic_list, names) #this works properly, we just do this to clean the names
-  )
-v3_dataset$Year <- as.numeric(sub("X", "", v3_dataset$Year))
+v4_dataset = v4_long %>%
+  rename(Country = Country.Name, !!!setNames(indic_list, names)) #this works properly, we just do this to clean the names
+v4_dataset$Year <- as.numeric(sub("X", "", v4_dataset$Year))
 
-colSums(is.na(v3_dataset))
+colSums(is.na(v4_dataset))
 
-#now need to write the regression
+#i deleted the code that shows this, but i checked for correlation btwn variables 
+  #(which is why i got rid of total population since i have population density)
+
+#regression without time fixed effects
 no_fe = lm(life_expectancy ~ gdp_per_capita + health_expenditure + 
-             educ_expenditure + total_population +
-             population_density + alc_consumption +
-             tobacco + physicians + open_defect +
-             drinking_water + sanitation + political_stability, 
-           data = v3_dataset)
+         educ_expenditure + total_population +
+          population_density + alc_consumption +
+          tobacco + physicians + open_defect +
+          drinking_water + sanitation + political_stability,
+          data = v4_dataset)
 summary(no_fe) #352 degrees of freedom, (13306 observations deleted due to missingness)
 
-#adding time fixed effects! will not do country fixed effects
-model = plm(formula = life_expectancy ~ gdp_per_capita 
-             + health_expenditure + educ_expenditure 
-             + population_density   #including total_population makes the model bug
-             + drinking_water + open_defect + sanitation
-             + alc_consumption + tobacco 
-             + physicians + political_stability, 
-             data = v3_dataset, index = c("Year"), model = "within") #is it better to run with the full version?
-summary(model) #n = 5
+#time fixed effects (column year)
+model = lm(life_expectancy ~ gdp_per_capita 
+                    + health_expenditure + educ_expenditure 
+                    + population_density  
+                    + drinking_water + open_defect + sanitation
+                    + alc_consumption + tobacco 
+                    + physicians + political_stability + factor(Year), #doing factor(Year) makes year a fixed effect
+                    data = v4_dataset)
+summary(model) #349 degrees of freedom 
+  #note to self: model automatically 
 
+#export regression tables
+stargazer(no_fe, model, type = "html", out = "regression_results.html")
 
-v3_dataset_cropped <- v3_dataset[complete.cases(v3_dataset$gdp_per_capita, v3_dataset$life_expectancy), ]
-#colSums(is.na(v3_dataset_cropped)) #removed the observations w/o life expectancy or gdp per capita
-model_cropped = plm(formula = life_expectancy ~ gdp_per_capita 
-                            + health_expenditure + educ_expenditure 
-                            + population_density  
-                            + drinking_water + open_defect + sanitation
-                            + alc_consumption + tobacco 
-                            + physicians + political_stability, 
-                            data = v3_dataset_cropped, index = c("Year"), model = "within") 
-summary(model_cropped)
+substantive.theme<-theme(panel.background = element_rect(fill = "white", #change depending on website theme
+                                                         colour = "white", linetype = "solid"),
+                         panel.grid.major = element_line(size = .2, colour = "grey"),
+                         panel.grid.minor = element_line(size = .2, colour = "grey"),
+                     axis.line=element_blank(),
+                     plot.margin = unit(c(1,1,1,1),"cm"), 
+                     panel.border = element_blank(),
+                     plot.background = element_blank(),
+                     plot.title = element_text(hjust = 0.5),
+                     plot.subtitle = element_text(hjust = 0.5)) #to center the title over the map
 
 #now make the substantive effects plot
+plot(ggpredict(model, "gdp_per_capita"), colors = "#41ab5d")+
+  ggtitle("Higher GDP (Statistically) Leads to a Longer Life!")+
+  substantive.theme +
+  labs(y= "Life Expectancy", x = "GDP Per Capita")
 
-#VISUALIZATION 4
-#to do some comparisons of world development characteristics btwn countries]]
-#can do this for multiple data points in 2015 across three countries ?
-#can do a by time thing
-us_only <- subset(df, Country.Name == "United States")
-us_only_fil <- us_only[complete.cases(us_only) | rowSums(is.na(us_only)) <= 40, ]
-india_only <- subset(df, Country.Name == "India")
-india_only_fil <- india_only[complete.cases(india_only) | rowSums(is.na(india_only)) <= 40, ]
-china_only <- subset(df, Country.Name == "China")
-china_only_fil <- china_only[complete.cases(china_only) | rowSums(is.na(china_only)) <= 40, ]
-#do a query to see what indicators are common btwn or just pick indicators im interested in seeing
-#like life expectancy
-
-#VISUALIZATION IDEA
-#another us, india, china comparison?
-#VISUALIZATION IDEA
-#SE.ENR.TERT.FM.ZS - gender parity index of ppl enrolled in higher educ (Tertiary) over time in US
-#make like the one screenshotted in google docs
-
-
-
-
-
-
-
+dag = dagify(life_expectancy ~ gdp_per_capita 
+             + health_expenditure + educ_expenditure 
+             + population_density  
+             + drinking_water + open_defect + sanitation
+             + alc_consumption + tobacco 
+             + physicians + political_stability,
+            labels = c("life_expectancy" = "life expectancy",
+                       "gdp_per_capita" = "GDP per capita",
+                       "health_expenditure" = "government health expenditure",
+                       "educ_expenditure" = "government education expenditure",
+                       "drinking_water" = "drinking water",
+                       "open_defect" = "open defectation",
+                       "sanitation" = "sanitation",
+                       "alc_consumption" = "alcohol consumption",
+                       "tobacco" = "tobacco",
+                       "physicians" = "physicians",
+                       "political_stability" = "political stability"))
+ggdag(dag, text=FALSE, use_labels="label") + theme_dag_blank() 
+  # + ggtitle("Determinants of Life Expectancy") i don't know if a title is super neccessary
 
 
 
@@ -217,13 +369,7 @@ china_only_fil <- china_only[complete.cases(china_only) | rowSums(is.na(china_on
 
 
 
-#old work
-#df = read.csv("CollegeAdmissions_Data.csv") #codebook https://opportunityinsights.org/wp-content/uploads/2023/07/CollegeAdmissions_Codebook.pdf
-#df = read.csv("mrc_table10.csv")
-#https://opportunityinsights.org/data/?geographic_level=0&topic=0&paper_id=0#resource-listing
-#https://opportunityinsights.org/data/ 
-#library(readxl)
-#dta<-read_excel("Detailed enrollments.xlsx")
-#df = read.csv("data/MERGED1999_00_PP.csv")
-#df = read.csv("EdStats_CSV/EdStatsData.csv") #https://datacatalog.worldbank.org/search/dataset/0038480 i need to find the csv
-#df = read_excel("pwt1001.xlsx")
+
+
+
+
